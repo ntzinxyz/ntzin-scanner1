@@ -1,322 +1,306 @@
+// ==============================================
+// NTZIN ANTI PROXY V5 ABSURDO (BLACK & WHITE)
+// ==============================================
+
 const express = require("express");
 const multer = require("multer");
 const fs = require("fs");
+const fsp = fs.promises;
 const path = require("path");
 const tar = require("tar");
 const plist = require("plist");
 const bplist = require("bplist-parser");
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-const upload = multer({
-  dest: "uploads/",
-  limits: { fileSize: 1024 * 1024 * 1024 }
-});
+const upload = multer({ dest: "uploads/" });
 
-// ======================================
-// LOCALIZAR SOMENTE MCPROFILEEVENTS
-// ======================================
-
-function walk(dir, files = []) {
-  const itens = fs.readdirSync(dir);
-
-  for (const item of itens) {
-    const full = path.join(dir, item);
-
-    try {
-      const stat = fs.statSync(full);
-
-      if (stat.isDirectory()) {
-        walk(full, files);
-      } else {
-        if (item.toLowerCase().includes("mcprofileevents")) {
-          files.push(full);
-        }
-      }
-    } catch {}
-  }
-
-  return files;
-}
-
-// ======================================
-// LER PLIST XML / BINÁRIO
-// ======================================
-
-function readPlist(file) {
-  const buf = fs.readFileSync(file);
-
-  try {
-    if (buf.slice(0, 6).toString() === "bplist") {
-      const parsed = bplist.parseBuffer(buf);
-      return parsed[0];
-    } else {
-      return plist.parse(buf.toString());
-    }
-  } catch {
-    return null;
-  }
-}
-
-// ======================================
-// FORMATAR DATA
-// ======================================
-
-function formatDate(v) {
-  if (!v || v === "-") return "-";
-
-  try {
-    if (typeof v === "number") {
-      return new Date(v * 1000).toLocaleString("pt-BR");
-    }
-
-    const d = new Date(v);
-
-    if (!isNaN(d)) {
-      return d.toLocaleString("pt-BR");
-    }
-
-    return String(v);
-  } catch {
-    return String(v);
-  }
-}
-
-// ======================================
-// GERAR NOME QUANDO FALTAR
-// ======================================
-
-function fakeName() {
-  return "Perfil_" + Math.random().toString(36).substring(2,8).toUpperCase();
-}
-
-// ======================================
-// EXTRAIR EVENTOS REAIS
-// ======================================
-
-function extrair(obj, lista = []) {
-  if (!obj) return lista;
-
-  if (Array.isArray(obj)) {
-    for (const item of obj) extrair(item, lista);
-    return lista;
-  }
-
-  if (typeof obj === "object") {
-
-    const texto = JSON.stringify(obj).toLowerCase();
-
-    let tipo = null;
-
-    if (texto.includes("install")) tipo = "INSTALL";
-    if (texto.includes("remove")) tipo = "REMOVE";
-
-    if (tipo) {
-
-      let nome =
-        obj.PayloadDisplayName ||
-        obj.ProfileName ||
-        obj.DisplayName ||
-        obj.Name ||
-        obj.PayloadIdentifier ||
-        obj.ProfileIdentifier ||
-        obj.Identifier ||
-        obj.Organization ||
-        obj.Signer ||
-        fakeName();
-
-      let data =
-        obj.Timestamp ||
-        obj.Date ||
-        obj.CreationDate ||
-        obj.EventTime ||
-        obj.Time ||
-        obj.LastModified ||
-        obj.time ||
-        "-";
-
-      lista.push({
-        tipo,
-        nome,
-        data: formatDate(data)
-      });
-    }
-
-    for (const k in obj) {
-      extrair(obj[k], lista);
-    }
-  }
-
-  return lista;
-}
-
-// ======================================
+// ==============================================
 // HOME
-// ======================================
+// ==============================================
 
-app.get("/", (req,res)=>{
-
+app.get("/", (req, res) => {
 res.send(`
 <html>
 <head>
-<title>NTZIN PROFILE VIEWER V2</title>
+<title>NTZIN V5</title>
 
 <style>
+*{margin:0;padding:0;box-sizing:border-box;}
+
 body{
-margin:0;
-background:linear-gradient(135deg,#090012,#160022,#2a0042);
+height:100vh;
+background:#000;
+color:#fff;
 font-family:Arial;
-color:white;
 display:flex;
 justify-content:center;
 align-items:center;
-height:100vh;
+overflow:hidden;
 }
 
 .box{
-width:580px;
-background:rgba(255,255,255,.05);
-padding:40px;
-border-radius:24px;
+width:650px;
+padding:50px;
+border-radius:20px;
+background:rgba(255,255,255,0.05);
+backdrop-filter:blur(20px);
+box-shadow:0 0 60px rgba(255,255,255,0.15);
 text-align:center;
-box-shadow:0 0 40px rgba(180,0,255,.25);
+animation:fade 1s ease;
 }
 
 h1{
-margin:0;
 font-size:40px;
-color:#d98cff;
-}
-
-p{
-color:#c8b0e5;
+letter-spacing:3px;
 }
 
 button{
 margin-top:20px;
-padding:13px 28px;
+padding:15px 30px;
+background:#fff;
+color:#000;
 border:none;
-border-radius:12px;
-background:#9d00ff;
-color:white;
-font-weight:bold;
+border-radius:10px;
 cursor:pointer;
-font-size:16px;
+font-weight:bold;
+transition:0.3s;
 }
+
+button:hover{
+transform:scale(1.05);
+box-shadow:0 0 20px #fff;
+}
+
+.progress{
+width:100%;
+height:12px;
+background:#111;
+border-radius:10px;
+margin-top:20px;
+overflow:hidden;
+display:none;
+}
+
+.bar{
+height:100%;
+width:0%;
+background:#fff;
+}
+
+#status{
+margin-top:10px;
+opacity:0.7;
+}
+
+@keyframes fade{
+from{opacity:0;transform:translateY(20px);}
+to{opacity:1;transform:translateY(0);}
+}
+
 </style>
 </head>
 
 <body>
 
 <div class="box">
+<h1>NTZIN</h1>
+<p>ANTI PROXY V5</p>
 
-<h1>NTZIN PROFILE VIEWER V2</h1>
-<p>MCProfileEvents Premium</p>
+<input type="file" id="file"><br>
+<button onclick="upload()">SCAN</button>
 
-<form action="/upload" method="POST" enctype="multipart/form-data">
-<input type="file" name="arquivo"><br>
-<button type="submit">ANALISAR</button>
-</form>
-
+<div class="progress" id="progress">
+<div class="bar" id="bar"></div>
 </div>
+
+<div id="status"></div>
+</div>
+
+<script>
+function upload(){
+
+const file = document.getElementById("file").files[0];
+if(!file){alert("Selecione arquivo");return;}
+
+const xhr = new XMLHttpRequest();
+xhr.open("POST","/upload");
+
+const form = new FormData();
+form.append("arquivo",file);
+
+document.getElementById("progress").style.display="block";
+
+xhr.upload.onprogress = e=>{
+if(e.lengthComputable){
+let p = (e.loaded/e.total)*100;
+document.getElementById("bar").style.width=p+"%";
+document.getElementById("status").innerText="Upload "+p.toFixed(0)+"%";
+}
+};
+
+xhr.onload = ()=>{
+document.getElementById("status").innerText="Processando...";
+document.open();
+document.write(xhr.responseText);
+document.close();
+};
+
+xhr.send(form);
+}
+</script>
 
 </body>
 </html>
 `);
-
 });
 
-// ======================================
-// UPLOAD
-// ======================================
+// ==============================================
+// HELPERS
+// ==============================================
+
+function parsePlist(file){
+try{
+const buf = fs.readFileSync(file);
+if(buf.slice(0,6).toString()==="bplist"){
+return bplist.parseBuffer(buf)[0];
+}
+return plist.parse(buf.toString());
+}catch{return null;}
+}
+
+async function walk(dir, arr=[]){
+const items = await fsp.readdir(dir);
+for(const i of items){
+const full = path.join(dir,i);
+const stat = await fsp.stat(full);
+
+if(stat.isDirectory()){
+await walk(full,arr);
+}else{
+const low=i.toLowerCase();
+if(
+low.includes("mcprofile")||
+low.includes("settings")||
+low.includes("preferences")
+){
+arr.push(full);
+}
+}
+}
+return arr;
+}
+
+// ==============================================
+// ANALISE
+// ==============================================
+
+function proxyScan(text){
+const keys=[
+"httpproxy","httpsproxy","socksproxy",
+"proxyautoconfig","proxyenable"
+];
+
+return keys.filter(k=>text.includes(k));
+}
+
+function extractEvents(obj, list=[]){
+
+if(!obj) return list;
+
+if(Array.isArray(obj)){
+obj.forEach(x=>extractEvents(x,list));
+return list;
+}
+
+if(typeof obj==="object"){
+
+const t=JSON.stringify(obj).toLowerCase();
+
+let tipo=null;
+if(t.includes("install")) tipo="INSTALL";
+if(t.includes("remove")) tipo="REMOVE";
+
+if(tipo){
+list.push({
+tipo,
+nome: obj.PayloadDisplayName || obj.Name || "Perfil",
+data: obj.Timestamp || obj.Date || "-"
+});
+}
+
+for(const k in obj){
+extractEvents(obj[k],list);
+}
+}
+
+return list;
+}
+
+// ==============================================
+// SCAN
+// ==============================================
 
 app.post("/upload", upload.single("arquivo"), async (req,res)=>{
 
-try{
+const start=Date.now();
 
-const pasta = "scan_" + Date.now();
-fs.mkdirSync(pasta);
+const pasta="scan_"+Date.now();
+await fsp.mkdir(pasta);
 
-await tar.x({
-file:req.file.path,
-cwd:pasta
-});
+await tar.x({file:req.file.path,cwd:pasta});
 
-const files = walk(pasta);
+const files=await walk(pasta);
 
-let eventos = [];
+let proxy=[];
+let eventos=[];
 
-for (const arq of files) {
+for(const f of files){
 
-const obj = readPlist(arq);
+const raw=await fsp.readFile(f);
+const txt=raw.toString().toLowerCase();
 
-if (obj) {
-eventos.push(...extrair(obj));
+proxy.push(...proxyScan(txt));
+
+const parsed=parsePlist(f);
+if(parsed){
+eventos.push(...extractEvents(parsed));
+}
 }
 
-}
+proxy=[...new Set(proxy)];
 
-// remover duplicados
-eventos = eventos.filter((v,i,a)=>
-i === a.findIndex(t =>
-t.tipo === v.tipo &&
-t.nome === v.nome &&
-t.data === v.data
-)
-);
+const tempo=((Date.now()-start)/1000).toFixed(2);
 
-// ordenar por data conhecida primeiro
-eventos.sort((a,b)=>{
-if(a.data === "-") return 1;
-if(b.data === "-") return -1;
-return new Date(a.data) - new Date(b.data);
-});
-
-const installs = eventos.filter(x=>x.tipo==="INSTALL").length;
-const removes = eventos.filter(x=>x.tipo==="REMOVE").length;
+// ==============================================
+// RESULT
+// ==============================================
 
 res.send(`
 <html>
 <head>
 <style>
-
 body{
-margin:0;
-background:linear-gradient(135deg,#090012,#160022,#2a0042);
+background:#000;
+color:#fff;
 font-family:Arial;
-color:white;
 padding:40px;
 }
 
 .card{
-background:rgba(255,255,255,.05);
-padding:22px;
-border-radius:18px;
-margin-bottom:15px;
-box-shadow:0 0 18px rgba(180,0,255,.15);
+background:rgba(255,255,255,0.05);
+padding:20px;
+margin-bottom:20px;
+border-radius:15px;
+box-shadow:0 0 20px rgba(255,255,255,0.1);
 }
-
-.roxo{color:#d98cff;}
-.ok{color:#00ff99;}
-.bad{color:#ff6688;}
 
 .ev{
-padding:14px;
 margin-top:10px;
-border-radius:14px;
-background:rgba(255,255,255,.03);
-line-height:1.7;
-}
-
-a{
-color:#d98cff;
-text-decoration:none;
-font-weight:bold;
-font-size:18px;
-}
-
-small{
-color:#bbb;
+padding:10px;
+background:#111;
+border-radius:10px;
 }
 
 </style>
@@ -324,57 +308,32 @@ color:#bbb;
 
 <body>
 
-<h1 class="roxo">NTZIN FINAL REPORT</h1>
+<h1>NTZIN RESULT</h1>
 
 <div class="card">
-<b>Arquivo:</b> ${req.file.originalname}
+Tempo: ${tempo}s
 </div>
 
 <div class="card">
-<b>Profiles Installed:</b>
-<span class="ok">${installs}</span><br><br>
-
-<b>Profiles Removed:</b>
-<span class="bad">${removes}</span>
+Proxy Evidence: ${proxy.length}/10<br>
+${proxy.join("<br>") || "Nenhum"}
 </div>
 
 <div class="card">
-<b>EVENTOS / PERFIS:</b>
-
+Eventos:
 ${
-eventos.length
-? eventos.map(ev => `
+eventos.map(e=>`
 <div class="ev">
-<span class="${ev.tipo === "INSTALL" ? "ok" : "bad"}">
-${ev.tipo}
-</span>
- → ${ev.nome}<br>
-<small>${ev.data}</small>
+${e.tipo} - ${e.nome}<br>
+${e.data}
 </div>
 `).join("")
-: "Nenhum evento encontrado"
 }
-
 </div>
-
-<div class="card">
-<b>Arquivos MCProfileEvents encontrados:</b> ${files.length}
-</div>
-
-<a href="/">Voltar</a>
 
 </body>
 </html>
 `);
-
-}catch(e){
-
-res.send("Erro ao analisar.");
-
-}
-
 });
 
-app.listen(3000, ()=>{
-console.log("Site rodando");
-});
+app.listen(PORT,()=>console.log("NTZIN V5 ONLINE"));
