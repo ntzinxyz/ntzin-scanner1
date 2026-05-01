@@ -1,5 +1,5 @@
 // ==============================================
-// NTZIN V12 - GOD DETECTION ENGINE
+// NTZIN V13 - STABLE (SEM CRASH)
 // ==============================================
 
 const express = require("express");
@@ -17,27 +17,29 @@ const PORT = process.env.PORT || 3000;
 const upload = multer({ dest: "uploads/" });
 
 // =======================
-// HELPERS
+// HELPERS SEGUROS
 // =======================
 
-function parsePlist(file){
+function safeParse(file){
 try{
-const buf=fs.readFileSync(file);
+const buf = fs.readFileSync(file);
 if(buf.slice(0,6).toString()==="bplist"){
 return bplist.parseBuffer(buf)[0];
 }
 return plist.parse(buf.toString());
-}catch{return null;}
+}catch{
+return null;
+}
 }
 
-function getDate(obj){
-return obj.Timestamp||obj.Date||obj.CreationDate||obj.EventTime||null;
+function getTime(obj){
+return obj?.Timestamp || obj?.Date || obj?.CreationDate || obj?.EventTime || null;
 }
 
-function epoch(d){
+function toEpoch(d){
 if(!d) return 0;
-const dt=new Date(d);
-return isNaN(dt)?0:dt.getTime();
+const dt = new Date(d);
+return isNaN(dt) ? 0 : dt.getTime();
 }
 
 function detectProxy(text){
@@ -50,245 +52,141 @@ return keys.filter(k=>text.includes(k));
 }
 
 // =======================
-// GOD DETECTION ENGINE
+// ANALISE LEVE MAS EFICIENTE
 // =======================
 
-function godAnalysis(eventos, proxyHits){
+function analyze(events, proxyHits){
 
-let report = {
-timeIssues: [],
-patterns: [],
-proxyTimeline: [],
-risk: 0
-};
+let risk = 0;
+let flags = [];
 
-// ---- TIME INCONSISTENCY ----
-for(let i=1;i<eventos.length;i++){
-if(eventos[i].time < eventos[i-1].time){
-report.timeIssues.push("Tempo invertido detectado");
-report.risk += 20;
+// ordem de tempo
+for(let i=1;i<events.length;i++){
+if(events[i].time < events[i-1].time){
+flags.push("Ordem de tempo inconsistente");
+risk += 20;
 }
 }
 
-// ---- GAP DETECTION ----
-for(let i=1;i<eventos.length;i++){
-let gap = eventos[i].time - eventos[i-1].time;
-if(gap > 86400000){ // > 1 dia
-report.timeIssues.push("Gap de tempo suspeito (>1 dia)");
-report.risk += 10;
-}
-}
-
-// ---- RAPID INSTALL/REMOVE ----
-for(let i=1;i<eventos.length;i++){
-if(eventos[i-1].tipo==="INSTALL" && eventos[i].tipo==="REMOVE"){
-let diff = eventos[i].time - eventos[i-1].time;
+// install/remove rapido
+for(let i=1;i<events.length;i++){
+if(events[i-1].tipo==="INSTALL" && events[i].tipo==="REMOVE"){
+let diff = events[i].time - events[i-1].time;
 if(diff > 0 && diff < 300000){
-report.patterns.push("Install → Remove rápido (<5min)");
-report.risk += 25;
+flags.push("Instalação removida rapidamente");
+risk += 25;
 }
 }
 }
 
-// ---- MULTI INSTALL ----
-let installs = eventos.filter(e=>e.tipo==="INSTALL").length;
-if(installs >= 3){
-report.patterns.push("Múltiplos INSTALL suspeitos");
-report.risk += 15;
-}
-
-// ---- PROXY ANALYSIS ----
+// proxy
 if(proxyHits.length){
-report.patterns.push("Proxy detectado no sistema");
-report.risk += proxyHits.length * 5;
-
-eventos.forEach(e=>{
-if(e.tipo==="INSTALL"){
-report.proxyTimeline.push({
-event:"Possível ativação de proxy",
-time:e.time
-});
-}
-if(e.tipo==="REMOVE"){
-report.proxyTimeline.push({
-event:"Possível remoção de proxy",
-time:e.time
-});
-}
-});
+flags.push("Indícios de proxy no sistema");
+risk += proxyHits.length * 5;
 }
 
-// ---- MISSING TIMESTAMP ----
-eventos.forEach(e=>{
+// eventos sem tempo
+events.forEach(e=>{
 if(!e.time){
-report.timeIssues.push("Evento sem timestamp");
-report.risk += 10;
+flags.push("Evento sem timestamp");
+risk += 10;
 }
 });
 
-// normalize
-if(report.risk > 100) report.risk = 100;
+if(risk>100) risk=100;
 
-return report;
+return {risk, flags};
 }
 
 // =======================
-// HOME (UI BONITA)
+// UI SIMPLES E ESTÁVEL
 // =======================
 
 app.get("/", (req,res)=>{
 res.send(`
 <html>
-<head>
-<style>
-body{
-margin:0;
-background:#000;
-color:#fff;
-font-family:Arial;
-display:flex;
-justify-content:center;
-align-items:center;
-height:100vh;
-}
-
-.box{
-background:rgba(255,255,255,0.05);
-padding:40px;
-border-radius:20px;
-backdrop-filter:blur(20px);
-box-shadow:0 0 40px rgba(255,255,255,0.2);
-text-align:center;
-}
-
-button{
-padding:10px 20px;
-border:none;
-border-radius:10px;
-background:#fff;
-color:#000;
-cursor:pointer;
-}
-
-.bar{
-height:10px;
-background:#333;
-margin-top:20px;
-border-radius:10px;
-overflow:hidden;
-}
-
-.progress{
-height:100%;
-width:0%;
-background:#fff;
-transition:0.2s;
-}
-</style>
-</head>
-
-<body>
-
-<div class="box">
-<h1>NTZIN V12 GOD</h1>
-<input type="file" id="file"><br><br>
-<button onclick="scan()">SCAN</button>
-
-<div class="bar">
-<div class="progress" id="p"></div>
-</div>
-</div>
-
-<script>
-function scan(){
-let f=document.getElementById("file").files[0];
-if(!f) return alert("Escolhe arquivo");
-
-let p=document.getElementById("p");
-let v=0;
-
-let int=setInterval(()=>{
-v+=5;
-p.style.width=v+"%";
-if(v>=90) clearInterval(int);
-},200);
-
-let fd=new FormData();
-fd.append("arquivo",f);
-
-fetch("/scan",{method:"POST",body:fd})
-.then(r=>r.text())
-.then(html=>{
-p.style.width="100%";
-setTimeout(()=>{
-document.open();
-document.write(html);
-document.close();
-},500);
-});
-}
-</script>
-
+<body style="background:black;color:white;font-family:Arial;text-align:center;padding-top:100px">
+<h1>NTZIN V13 STABLE</h1>
+<form action="/scan" method="post" enctype="multipart/form-data">
+<input type="file" name="arquivo"><br><br>
+<button>SCAN</button>
+</form>
 </body>
 </html>
 `);
 });
 
 // =======================
-// SCAN
+// SCAN (OTIMIZADO)
 // =======================
 
 app.post("/scan", upload.single("arquivo"), async (req,res)=>{
 
-const start=Date.now();
+try{
 
-const pasta="scan_"+Date.now();
+const start = Date.now();
+
+const pasta = "scan_"+Date.now();
 await fsp.mkdir(pasta);
 
+// extrai
 await tar.x({file:req.file.path,cwd:pasta});
 
-const files=await fsp.readdir(pasta);
+// pega só arquivos relevantes
+const files = (await fsp.readdir(pasta)).filter(f =>
+f.toLowerCase().includes("mcprofile") || f.endsWith(".plist")
+);
 
-let eventos=[];
-let proxy=[];
+let events = [];
+let proxyHits = [];
 
 for(const f of files){
 
-const full=path.join(pasta,f);
-const raw=await fsp.readFile(full);
-const txt=raw.toString().toLowerCase();
+const full = path.join(pasta,f);
 
-proxy.push(...detectProxy(txt));
+// limita tamanho
+const stat = await fsp.stat(full);
+if(stat.size > 2_000_000) continue;
 
-const parsed=parsePlist(full);
+let raw;
+try{
+raw = await fsp.readFile(full);
+}catch{
+continue;
+}
 
-if(parsed){
+const txt = raw.toString().toLowerCase();
 
-const str=JSON.stringify(parsed).toLowerCase();
+// detect proxy
+proxyHits.push(...detectProxy(txt));
 
-let tipo=null;
+// parse plist
+const parsed = safeParse(full);
+if(!parsed) continue;
+
+const str = JSON.stringify(parsed).toLowerCase();
+
+let tipo = null;
 if(str.includes("install")) tipo="INSTALL";
 if(str.includes("remove")) tipo="REMOVE";
 
 if(tipo){
-eventos.push({
+events.push({
 tipo,
 nome: parsed.PayloadDisplayName || parsed.PayloadIdentifier || "Perfil",
-time: epoch(getDate(parsed))
+time: toEpoch(getTime(parsed))
 });
 }
+
 }
-}
 
-eventos.sort((a,b)=>a.time-b.time);
+// ordena
+events.sort((a,b)=>a.time-b.time);
 
-// =======================
-// GOD ANALYSIS
-// =======================
+// analisa
+const result = analyze(events, proxyHits);
 
-const god = godAnalysis(eventos, proxy);
-
-const tempo=((Date.now()-start)/1000).toFixed(2);
+const tempo = ((Date.now()-start)/1000).toFixed(2);
 
 // =======================
 // RESULTADO
@@ -296,60 +194,42 @@ const tempo=((Date.now()-start)/1000).toFixed(2);
 
 res.send(`
 <html>
-<style>
-body{background:#000;color:#fff;font-family:Arial;padding:30px;}
-.card{background:#111;padding:15px;border-radius:10px;margin-bottom:10px;}
-.bad{color:red;}
-.warn{color:yellow;}
-.good{color:lime;}
-</style>
+<body style="background:black;color:white;font-family:Arial;padding:20px">
 
-<body>
+<h1>NTZIN V13 RESULT</h1>
 
-<h1>NTZIN V12 REPORT</h1>
+<p>Tempo: ${tempo}s</p>
 
-<div class="card">Tempo: ${tempo}s</div>
+<p>Risk: <b>${result.risk}/100</b></p>
 
-<div class="card">
-RISK:
-<span class="${god.risk>70?"bad":god.risk>40?"warn":"good"}">
-${god.risk}/100
-</span>
-</div>
+<h3>Flags:</h3>
+${result.flags.map(f=>`<div>${f}</div>`).join("") || "Nenhuma"}
 
-<div class="card">
-<b>Problemas de Tempo:</b><br>
-${god.timeIssues.join("<br>") || "Nenhum"}
-</div>
+<h3>Proxy:</h3>
+${proxyHits.join("<br>") || "Nenhum"}
 
-<div class="card">
-<b>Padrões Suspeitos:</b><br>
-${god.patterns.join("<br>") || "Nenhum"}
-</div>
-
-<div class="card">
-<b>Proxy:</b><br>
-${proxy.join("<br>") || "Nenhum"}
-</div>
-
-<div class="card">
-<b>Eventos:</b><br>
-${
-eventos.map(e=>`
+<h3>Eventos:</h3>
+${events.map(e=>`
 <div>
 ${e.tipo} - ${e.nome}<br>
-${new Date(e.time).toLocaleString()}
+${e.time ? new Date(e.time).toLocaleString() : "Sem data"}
 </div>
-`).join("")
-}
-</div>
+`).join("")}
 
-<br>
+<br><br>
 <a href="/">Voltar</a>
 
 </body>
 </html>
 `);
+
+}catch(e){
+console.log("ERRO REAL:", e);
+res.send("Erro ao processar (arquivo muito pesado ou inválido)");
+}
+
 });
 
-app.listen(PORT,()=>console.log("V12 GOD ONLINE"));
+// =======================
+
+app.listen(PORT,()=>console.log("V13 STABLE ONLINE"));
