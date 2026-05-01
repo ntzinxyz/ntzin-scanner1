@@ -1,45 +1,39 @@
-// ==============================================
-// NTZIN V14 HARD STABLE (ANTI CRASH REAL)
-// ==============================================
+// ==========================================
+// NTZIN V15 ULTRA STABLE (NO CRASH)
+// ==========================================
 
 const express = require("express");
 const multer = require("multer");
 const fs = require("fs");
-const fsp = fs.promises;
-const path = require("path");
 const tar = require("tar");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// evita timeout
-app.use((req,res,next)=>{
-res.setTimeout(120000);
-next();
-});
+// ============================
+// UPLOAD LIMITADO
+// ============================
 
-// upload limitado
 const upload = multer({ 
-dest: "uploads/",
-limits: { fileSize: 30 * 1024 * 1024 }
+  dest: "uploads/",
+  limits: { fileSize: 25 * 1024 * 1024 } // 🔥 limite menor = mais estável
 });
 
-// =======================
-// UI
-// =======================
+// ============================
+// HOME
+// ============================
 
 app.get("/", (req,res)=>{
 res.send(`
 <html>
 <body style="background:black;color:white;text-align:center;padding-top:100px">
 
-<h1>NTZIN V14 STABLE</h1>
+<h1>NTZIN V15</h1>
 
 <input type="file" id="file"><br><br>
 <button onclick="scan()">SCAN</button>
 
-<br><br>
-<div style="width:300px;height:10px;background:#333;margin:auto;">
+<div style="width:300px;height:10px;background:#222;margin:auto;margin-top:20px;">
 <div id="bar" style="height:10px;width:0%;background:white;"></div>
 </div>
 
@@ -67,6 +61,10 @@ document.write(xhr.responseText);
 document.close();
 };
 
+xhr.onerror = function(){
+alert("Erro de conexão");
+};
+
 xhr.open("POST","/scan");
 xhr.send(fd);
 }
@@ -77,43 +75,49 @@ xhr.send(fd);
 `);
 });
 
-// =======================
-// SCAN SUPER CONTROLADO
-// =======================
+// ============================
+// SCAN SEGURO
+// ============================
 
 app.post("/scan", upload.single("arquivo"), async (req,res)=>{
 
+if(!req.file){
+return res.send("Arquivo inválido");
+}
+
+let proxy = false;
+let filesChecked = 0;
+
 try{
 
-let proxyHits = [];
-let filesChecked = 0;
-let MAX_FILES = 50; // 🔥 limite crítico
-
-// 🔥 lê TAR sem extrair tudo
-await tar.t({
+// 🔥 extrai só alguns arquivos controlados
+await tar.extract({
 file: req.file.path,
+cwd: "./tmp",
+filter: (p)=>{
+// só arquivos importantes
+return p.includes("plist") || p.includes("profile");
+},
 onentry: entry => {
 
-if(filesChecked > MAX_FILES) return;
+if(filesChecked > 30){
+entry.resume();
+return;
+}
 
-// só arquivos relevantes
-if(
-entry.path.toLowerCase().includes("mcprofile") ||
-entry.path.endsWith(".plist")
-){
+let data = "";
 
-let chunks = [];
-
-entry.on("data", chunk => {
-if(chunks.length < 5) chunks.push(chunk); // 🔥 limite leitura
+entry.on("data", chunk=>{
+if(data.length < 20000){ // 🔥 limite leitura
+data += chunk.toString();
+}
 });
 
-entry.on("end", () => {
-
-let txt = Buffer.concat(chunks).toString().toLowerCase();
+entry.on("end", ()=>{
+let txt = data.toLowerCase();
 
 if(txt.includes("proxy") || txt.includes("vpn")){
-proxyHits.push(entry.path);
+proxy = true;
 }
 
 });
@@ -121,24 +125,26 @@ proxyHits.push(entry.path);
 filesChecked++;
 
 }
-
-}
 });
 
-// =======================
+}catch(e){
+console.log("erro controlado:", e);
+return res.send("Arquivo muito pesado ou inválido (protegido)");
+}
+
+// ============================
 // RESULTADO
-// =======================
+// ============================
 
 res.send(`
 <html>
 <body style="background:black;color:white;padding:20px">
 
-<h1>NTZIN V14 RESULT</h1>
+<h1>RESULTADO</h1>
 
 <p>Arquivos analisados: ${filesChecked}</p>
 
-<h3>Proxy encontrado:</h3>
-${proxyHits.length ? proxyHits.map(p=>`<div>${p}</div>`).join("") : "Nenhum"}
+<p>Proxy detectado: ${proxy ? "SIM" : "NÃO"}</p>
 
 <br><br>
 <a href="/">Voltar</a>
@@ -147,13 +153,10 @@ ${proxyHits.length ? proxyHits.map(p=>`<div>${p}</div>`).join("") : "Nenhum"}
 </html>
 `);
 
-}catch(e){
-console.log("ERRO:", e);
-res.send("Arquivo pesado demais ou inválido (proteção ativada)");
-}
-
 });
 
-// =======================
+// ============================
 
-app.listen(PORT,()=>console.log("V14 HARD ONLINE"));
+app.listen(PORT, ()=>{
+console.log("V15 ONLINE");
+});
