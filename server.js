@@ -1,6 +1,6 @@
-// ==========================================
-// NTZIN V8 GOD (UI ORIGINAL + MELHORIAS)
-// ==========================================
+// ==============================================
+// NTZIN V7 INSANO (ENTERPRISE STYLE)
+// ==============================================
 
 const express = require("express");
 const multer = require("multer");
@@ -16,87 +16,147 @@ const PORT = process.env.PORT || 3000;
 
 const upload = multer({ dest: "uploads/" });
 
-// =======================
-// HELPERS
-// =======================
+// ==============================================
+// HOME
+// ==============================================
 
-function parsePlist(file){
-try{
-const buf = fs.readFileSync(file);
-if(buf.slice(0,6).toString()==="bplist"){
-return bplist.parseBuffer(buf)[0];
-}
-return plist.parse(buf.toString());
-}catch{
-return null;
-}
-}
-
-// 🔥 MELHORADO
-function getTime(obj){
-return obj?.Timestamp 
-|| obj?.Date 
-|| obj?.CreationDate 
-|| obj?.InstallDate
-|| obj?.RemovalDate
-|| obj?.EventTime
-|| null;
-}
-
-function toEpoch(d){
-if(!d) return 0;
-const dt = new Date(d);
-return isNaN(dt) ? 0 : dt.getTime();
-}
-
-// =======================
-// UI ORIGINAL + BARRA REAL
-// =======================
-
-app.get("/", (req,res)=>{
+app.get("/", (req, res) => {
 res.send(`
 <html>
-<body style="background:black;color:white;font-family:Arial;text-align:center;padding-top:100px">
+<head>
+<title>NTZIN V7</title>
 
-<h1>NTZIN V8 GOD</h1>
+<style>
+body{
+margin:0;
+height:100vh;
+font-family:Arial;
+color:white;
+overflow:hidden;
+background:#000;
+}
 
-<input type="file" id="file"><br><br>
-<button onclick="scan()">SCAN</button>
+canvas{
+position:fixed;
+top:0;
+left:0;
+z-index:0;
+}
 
-<br><br>
+.box{
+position:relative;
+z-index:1;
+width:650px;
+margin:auto;
+top:50%;
+transform:translateY(-50%);
+padding:40px;
+border-radius:20px;
+background:rgba(255,255,255,0.05);
+backdrop-filter:blur(20px);
+box-shadow:0 0 40px rgba(255,255,255,0.2);
+text-align:center;
+}
 
-<div style="width:300px;height:10px;background:#333;margin:auto;border-radius:10px;">
-<div id="bar" style="height:10px;width:0%;background:white;border-radius:10px;"></div>
+button{
+margin-top:20px;
+padding:14px 30px;
+background:#fff;
+color:#000;
+border:none;
+border-radius:10px;
+cursor:pointer;
+}
+
+.progress{
+margin-top:20px;
+height:10px;
+background:#111;
+border-radius:10px;
+overflow:hidden;
+display:none;
+}
+
+.bar{
+height:100%;
+width:0%;
+background:#fff;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="bg"></canvas>
+
+<div class="box">
+<h1>NTZIN V7</h1>
+
+<input type="file" id="file"><br>
+<button onclick="upload()">SCAN</button>
+
+<div class="progress" id="progress">
+<div class="bar" id="bar"></div>
+</div>
+
+<div id="status"></div>
 </div>
 
 <script>
-function scan(){
+// partículas
+const c = document.getElementById("bg");
+const ctx = c.getContext("2d");
+c.width=innerWidth;
+c.height=innerHeight;
 
-let f = document.getElementById("file").files[0];
-if(!f) return alert("Escolhe arquivo");
+let particles = Array.from({length:80},()=>({
+x:Math.random()*c.width,
+y:Math.random()*c.height,
+vx:Math.random()-0.5,
+vy:Math.random()-0.5
+}));
 
-let bar = document.getElementById("bar");
+function draw(){
+ctx.clearRect(0,0,c.width,c.height);
+particles.forEach(p=>{
+p.x+=p.vx;
+p.y+=p.vy;
+ctx.fillStyle="white";
+ctx.fillRect(p.x,p.y,2,2);
+});
+requestAnimationFrame(draw);
+}
+draw();
 
-let fd = new FormData();
-fd.append("arquivo", f);
+// upload
+function upload(){
+const file = document.getElementById("file").files[0];
+if(!file) return alert("Selecione");
 
-let xhr = new XMLHttpRequest();
+const xhr = new XMLHttpRequest();
+xhr.open("POST","/upload");
 
-xhr.upload.onprogress = function(e){
+const form = new FormData();
+form.append("arquivo",file);
+
+document.getElementById("progress").style.display="block";
+
+xhr.upload.onprogress = e=>{
 if(e.lengthComputable){
-let percent = (e.loaded / e.total) * 100;
-bar.style.width = percent + "%";
+let p=(e.loaded/e.total)*100;
+document.getElementById("bar").style.width=p+"%";
+document.getElementById("status").innerText="Upload "+p.toFixed(0)+"%";
 }
 };
 
-xhr.onload = function(){
+xhr.onload = ()=>{
+document.getElementById("status").innerText="Processando...";
 document.open();
 document.write(xhr.responseText);
 document.close();
 };
 
-xhr.open("POST","/scan");
-xhr.send(fd);
+xhr.send(form);
 }
 </script>
 
@@ -105,150 +165,152 @@ xhr.send(fd);
 `);
 });
 
-// =======================
-// SCAN
-// =======================
+// ==============================================
+// HELPERS
+// ==============================================
 
-app.post("/scan", upload.single("arquivo"), async (req,res)=>{
-
+function parsePlist(file){
 try{
+const buf = fs.readFileSync(file);
+if(buf.slice(0,6).toString()==="bplist"){
+return bplist.parseBuffer(buf)[0];
+}
+return plist.parse(buf.toString());
+}catch{return null;}
+}
 
-const pasta = "scan_"+Date.now();
+function extractDate(obj){
+return obj.Timestamp || obj.Date || obj.CreationDate || obj.EventTime || null;
+}
+
+function formatDate(d){
+if(!d) return {text:"UNKNOWN",trust:"LOW",value:0};
+
+let date = new Date(d);
+if(isNaN(date)) return {text:"UNKNOWN",trust:"LOW",value:0};
+
+return {
+text: date.toLocaleString("pt-BR"),
+trust:"HIGH",
+value: date.getTime()
+};
+}
+
+// ==============================================
+// SCAN
+// ==============================================
+
+app.post("/upload", upload.single("arquivo"), async (req,res)=>{
+
+const start=Date.now();
+
+const pasta="scan_"+Date.now();
 await fsp.mkdir(pasta);
 
-// extrai
-await tar.x({
-file:req.file.path,
-cwd:pasta
-});
+await tar.x({file:req.file.path,cwd:pasta});
 
-let events = [];
-let proxyProfiles = [];
+const files = await fsp.readdir(pasta);
 
-// função recursiva
-async function scanDir(dir){
-
-const files = await fsp.readdir(dir);
+let eventos=[];
 
 for(const f of files){
 
-const full = path.join(dir,f);
-const stat = await fsp.stat(full);
-
-if(stat.isDirectory()){
-await scanDir(full);
-continue;
-}
-
-// limita tamanho
-if(stat.size > 5_000_000) continue;
-
-let raw;
-try{
-raw = await fsp.readFile(full);
-}catch{
-continue;
-}
-
-const txt = raw.toString().toLowerCase();
-
-// parse
-let parsed = parsePlist(full);
-
-// =======================
-// HTTPS PROXY COM NOME
-// =======================
-
-if(txt.includes("httpsproxy")){
-
-let nomePerfil = "Desconhecido";
-
-if(parsed){
-nomePerfil = parsed.PayloadDisplayName 
-|| parsed.PayloadIdentifier 
-|| "Perfil";
-}
-
-proxyProfiles.push({
-nome: nomePerfil,
-arquivo: f
-});
-}
-
-// =======================
-// EVENTOS COM HORÁRIO
-// =======================
-
+const parsed=parsePlist(path.join(pasta,f));
 if(parsed){
 
-const str = JSON.stringify(parsed).toLowerCase();
+const txt=JSON.stringify(parsed).toLowerCase();
 
-let tipo = null;
-if(str.includes("install")) tipo="INSTALL";
-if(str.includes("remove")) tipo="REMOVE";
+let tipo=null;
+if(txt.includes("install")) tipo="INSTALL";
+if(txt.includes("remove")) tipo="REMOVE";
 
 if(tipo){
-events.push({
+
+const d=formatDate(extractDate(parsed));
+
+eventos.push({
 tipo,
-nome: parsed.PayloadDisplayName || parsed.PayloadIdentifier || "Perfil",
-time: toEpoch(getTime(parsed))
+nome: parsed.PayloadDisplayName || "Perfil",
+data:d.text,
+value:d.value,
+trust:d.trust
 });
 }
 }
+}
 
+// ordenar timeline
+eventos.sort((a,b)=>a.value-b.value);
+
+// detectar inconsistência
+let anomalies=0;
+for(let i=1;i<eventos.length;i++){
+if(eventos[i].value < eventos[i-1].value){
+eventos[i].trust="INCONSISTENT";
+anomalies++;
 }
 }
 
-await scanDir(pasta);
+// score
+let score=100;
+score -= anomalies*10;
+score -= eventos.filter(e=>e.trust==="LOW").length*5;
+if(score<0) score=0;
 
-// ordenar
-events.sort((a,b)=>a.time-b.time);
+const tempo=((Date.now()-start)/1000).toFixed(2);
 
-// =======================
-// RESULTADO (MESMA UI)
-// =======================
+// ==============================================
+// RESULT
+// ==============================================
 
 res.send(`
 <html>
-<body style="background:black;color:white;font-family:Arial;padding:20px">
+<style>
+body{background:#000;color:#fff;font-family:Arial;padding:30px;}
+.card{background:rgba(255,255,255,0.05);padding:20px;margin-bottom:15px;border-radius:12px;}
+.good{color:#00ff99;}
+.warn{color:#ffaa00;}
+.bad{color:#ff4444;}
+</style>
 
-<h1>NTZIN V8 RESULT</h1>
+<body>
 
-<h2>Perfis com HTTPS Proxy:</h2>
-${
-proxyProfiles.length 
-? proxyProfiles.map(p=>`
-<div>${p.nome} (${p.arquivo})</div>
-`).join("")
-: "Nenhum"
-}
+<h1>NTZIN V7 DASHBOARD</h1>
 
-<h2>Eventos:</h2>
-${
-events.map(e=>`
-<div style="margin-bottom:10px;">
-${e.tipo} - ${e.nome}<br>
-${e.time ? new Date(e.time).toLocaleString() : "Sem data"}
+<div class="card">
+Tempo: ${tempo}s
 </div>
+
+<div class="card">
+SYSTEM TRUST SCORE: 
+<span class="${score>70?"good":score>40?"warn":"bad"}">
+${score}/100
+</span>
+</div>
+
+<div class="card">
+Timeline:
+${
+eventos.map(e=>`
+<div>
+<b>${e.tipo}</b> - ${e.nome}<br>
+${e.data} 
+<span class="${e.trust==="HIGH"?"good":e.trust==="LOW"?"warn":"bad"}">
+(${e.trust})
+</span>
+</div><hr>
 `).join("")
 }
+</div>
 
-<br><br>
-<a href="/">Voltar</a>
+<div class="card">
+Anomalias detectadas: ${anomalies}
+</div>
 
 </body>
 </html>
 `);
 
-}catch(e){
-console.log("ERRO:", e);
-res.send("Erro ao processar sysdiagnose");
-}
-
 });
 
-// =======================
-
-app.listen(PORT,()=>{
-console.log("V8 GOD ONLINE");
-});
+app.listen(PORT,()=>console.log("NTZIN V7 ONLINE"));
