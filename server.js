@@ -1,5 +1,5 @@
 // ==============================================
-// NTZIN ANTI PROXY V5 ABSURDO (BLACK & WHITE)
+// NTZIN V10 - ENTERPRISE STRUCTURE (SIMPLIFIED)
 // ==============================================
 
 const express = require("express");
@@ -17,144 +17,10 @@ const PORT = process.env.PORT || 3000;
 const upload = multer({ dest: "uploads/" });
 
 // ==============================================
-// HOME
+// STORAGE (memória)
 // ==============================================
 
-app.get("/", (req, res) => {
-res.send(`
-<html>
-<head>
-<title>NTZIN V5</title>
-
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-
-body{
-height:100vh;
-background:#000;
-color:#fff;
-font-family:Arial;
-display:flex;
-justify-content:center;
-align-items:center;
-overflow:hidden;
-}
-
-.box{
-width:650px;
-padding:50px;
-border-radius:20px;
-background:rgba(255,255,255,0.05);
-backdrop-filter:blur(20px);
-box-shadow:0 0 60px rgba(255,255,255,0.15);
-text-align:center;
-animation:fade 1s ease;
-}
-
-h1{
-font-size:40px;
-letter-spacing:3px;
-}
-
-button{
-margin-top:20px;
-padding:15px 30px;
-background:#fff;
-color:#000;
-border:none;
-border-radius:10px;
-cursor:pointer;
-font-weight:bold;
-transition:0.3s;
-}
-
-button:hover{
-transform:scale(1.05);
-box-shadow:0 0 20px #fff;
-}
-
-.progress{
-width:100%;
-height:12px;
-background:#111;
-border-radius:10px;
-margin-top:20px;
-overflow:hidden;
-display:none;
-}
-
-.bar{
-height:100%;
-width:0%;
-background:#fff;
-}
-
-#status{
-margin-top:10px;
-opacity:0.7;
-}
-
-@keyframes fade{
-from{opacity:0;transform:translateY(20px);}
-to{opacity:1;transform:translateY(0);}
-}
-
-</style>
-</head>
-
-<body>
-
-<div class="box">
-<h1>NTZIN</h1>
-<p>ANTI PROXY V5</p>
-
-<input type="file" id="file"><br>
-<button onclick="upload()">SCAN</button>
-
-<div class="progress" id="progress">
-<div class="bar" id="bar"></div>
-</div>
-
-<div id="status"></div>
-</div>
-
-<script>
-function upload(){
-
-const file = document.getElementById("file").files[0];
-if(!file){alert("Selecione arquivo");return;}
-
-const xhr = new XMLHttpRequest();
-xhr.open("POST","/upload");
-
-const form = new FormData();
-form.append("arquivo",file);
-
-document.getElementById("progress").style.display="block";
-
-xhr.upload.onprogress = e=>{
-if(e.lengthComputable){
-let p = (e.loaded/e.total)*100;
-document.getElementById("bar").style.width=p+"%";
-document.getElementById("status").innerText="Upload "+p.toFixed(0)+"%";
-}
-};
-
-xhr.onload = ()=>{
-document.getElementById("status").innerText="Processando...";
-document.open();
-document.write(xhr.responseText);
-document.close();
-};
-
-xhr.send(form);
-}
-</script>
-
-</body>
-</html>
-`);
-});
+let history = [];
 
 // ==============================================
 // HELPERS
@@ -162,7 +28,7 @@ xhr.send(form);
 
 function parsePlist(file){
 try{
-const buf = fs.readFileSync(file);
+const buf=fs.readFileSync(file);
 if(buf.slice(0,6).toString()==="bplist"){
 return bplist.parseBuffer(buf)[0];
 }
@@ -170,170 +36,195 @@ return plist.parse(buf.toString());
 }catch{return null;}
 }
 
-async function walk(dir, arr=[]){
-const items = await fsp.readdir(dir);
-for(const i of items){
-const full = path.join(dir,i);
-const stat = await fsp.stat(full);
-
-if(stat.isDirectory()){
-await walk(full,arr);
-}else{
-const low=i.toLowerCase();
-if(
-low.includes("mcprofile")||
-low.includes("settings")||
-low.includes("preferences")
-){
-arr.push(full);
-}
-}
-}
-return arr;
+function getDate(obj){
+return obj.Timestamp||obj.Date||obj.CreationDate||obj.EventTime||null;
 }
 
-// ==============================================
-// ANALISE
-// ==============================================
+function epoch(d){
+if(!d) return 0;
+if(typeof d==="number") return d*1000;
+const dt=new Date(d);
+return isNaN(dt)?0:dt.getTime();
+}
 
-function proxyScan(text){
+function detectProxy(text){
 const keys=[
 "httpproxy","httpsproxy","socksproxy",
-"proxyautoconfig","proxyenable"
+"httpenable","httpsenable","socksenable",
+"proxyautoconfigurlstring"
 ];
-
 return keys.filter(k=>text.includes(k));
 }
 
-function extractEvents(obj, list=[]){
-
-if(!obj) return list;
-
-if(Array.isArray(obj)){
-obj.forEach(x=>extractEvents(x,list));
-return list;
-}
-
-if(typeof obj==="object"){
-
-const t=JSON.stringify(obj).toLowerCase();
-
-let tipo=null;
-if(t.includes("install")) tipo="INSTALL";
-if(t.includes("remove")) tipo="REMOVE";
-
-if(tipo){
-list.push({
-tipo,
-nome: obj.PayloadDisplayName || obj.Name || "Perfil",
-data: obj.Timestamp || obj.Date || "-"
-});
-}
-
-for(const k in obj){
-extractEvents(obj[k],list);
-}
-}
-
-return list;
-}
-
 // ==============================================
-// SCAN
+// ANALYZER (motor)
 // ==============================================
 
-app.post("/upload", upload.single("arquivo"), async (req,res)=>{
-
-const start=Date.now();
+async function analyze(filePath){
 
 const pasta="scan_"+Date.now();
 await fsp.mkdir(pasta);
 
-await tar.x({file:req.file.path,cwd:pasta});
+await tar.x({file:filePath,cwd:pasta});
 
-const files=await walk(pasta);
+const files=await fsp.readdir(pasta);
 
-let proxy=[];
 let eventos=[];
+let proxy=[];
 
 for(const f of files){
 
-const raw=await fsp.readFile(f);
+const full=path.join(pasta,f);
+const raw=await fsp.readFile(full);
 const txt=raw.toString().toLowerCase();
 
-proxy.push(...proxyScan(txt));
+proxy.push(...detectProxy(txt));
 
-const parsed=parsePlist(f);
+const parsed=parsePlist(full);
+
 if(parsed){
-eventos.push(...extractEvents(parsed));
+
+const str=JSON.stringify(parsed).toLowerCase();
+
+let tipo=null;
+if(str.includes("install")) tipo="INSTALL";
+if(str.includes("remove")) tipo="REMOVE";
+
+if(tipo){
+
+eventos.push({
+tipo,
+nome: parsed.PayloadDisplayName || parsed.PayloadIdentifier || "Perfil",
+time: epoch(getDate(parsed))
+});
+}
+}
+}
+
+// ordenar timeline
+eventos.sort((a,b)=>a.time-b.time);
+
+// detectar anomalias
+let anomalies=0;
+for(let i=1;i<eventos.length;i++){
+if(eventos[i].time < eventos[i-1].time) anomalies++;
+}
+
+// detectar padrão rápido
+let rapid=0;
+for(let i=1;i<eventos.length;i++){
+if(eventos[i-1].tipo==="INSTALL" && eventos[i].tipo==="REMOVE"){
+if(eventos[i].time - eventos[i-1].time < 300000) rapid++;
 }
 }
 
-proxy=[...new Set(proxy)];
-
-const tempo=((Date.now()-start)/1000).toFixed(2);
-
 // ==============================================
-// RESULT
+// SCORING
 // ==============================================
 
+let timeScore=100 - anomalies*10;
+let proxyScore=Math.min(100, proxy.length*5);
+let activityScore=100 - rapid*10;
+
+let overall = Math.max(0, Math.floor(
+(timeScore*0.4)+(activityScore*0.3)+((100-proxyScore)*0.3)
+));
+
+return {
+eventos,
+proxy,
+scores:{
+timeScore,
+proxyScore,
+activityScore,
+overall
+}
+};
+}
+
+// ==============================================
+// ROUTES
+// ==============================================
+
+app.get("/", (req,res)=>{
 res.send(`
-<html>
-<head>
-<style>
-body{
-background:#000;
-color:#fff;
-font-family:Arial;
-padding:40px;
+<h1>NTZIN V10</h1>
+<input type="file" id="file">
+<button onclick="upload()">SCAN</button>
+
+<script>
+function upload(){
+const f=document.getElementById("file").files[0];
+const fd=new FormData();
+fd.append("arquivo",f);
+
+fetch("/scan",{method:"POST",body:fd})
+.then(r=>r.text())
+.then(html=>{
+document.open();
+document.write(html);
+document.close();
+});
 }
-
-.card{
-background:rgba(255,255,255,0.05);
-padding:20px;
-margin-bottom:20px;
-border-radius:15px;
-box-shadow:0 0 20px rgba(255,255,255,0.1);
-}
-
-.ev{
-margin-top:10px;
-padding:10px;
-background:#111;
-border-radius:10px;
-}
-
-</style>
-</head>
-
-<body>
-
-<h1>NTZIN RESULT</h1>
-
-<div class="card">
-Tempo: ${tempo}s
-</div>
-
-<div class="card">
-Proxy Evidence: ${proxy.length}/10<br>
-${proxy.join("<br>") || "Nenhum"}
-</div>
-
-<div class="card">
-Eventos:
-${
-eventos.map(e=>`
-<div class="ev">
-${e.tipo} - ${e.nome}<br>
-${e.data}
-</div>
-`).join("")
-}
-</div>
-
-</body>
-</html>
+</script>
 `);
 });
 
-app.listen(PORT,()=>console.log("NTZIN V5 ONLINE"));
+// SCAN
+
+app.post("/scan", upload.single("arquivo"), async (req,res)=>{
+
+const result = await analyze(req.file.path);
+
+// salvar histórico
+history.push({
+date: new Date(),
+result
+});
+
+// render
+
+res.send(`
+<h1>NTZIN V10 REPORT</h1>
+
+<p>OVERALL: ${result.scores.overall}</p>
+
+<h2>Proxy</h2>
+${result.proxy.join("<br>") || "Nenhum"}
+
+<h2>Eventos</h2>
+${result.eventos.map(e=>`
+<div>
+${e.tipo} - ${e.nome} - ${e.time}
+</div>
+`).join("")}
+
+<br><br>
+<a href="/history">Ver histórico</a>
+`);
+});
+
+// HISTÓRICO
+
+app.get("/history",(req,res)=>{
+res.send(`
+<h1>Histórico</h1>
+${
+history.map(h=>`
+<div>
+${h.date} - Score: ${h.result.scores.overall}
+</div>
+`).join("")
+}
+`);
+});
+
+// EXPORT JSON
+
+app.get("/export",(req,res)=>{
+res.json(history);
+});
+
+// ==============================================
+
+app.listen(PORT,()=>console.log("V10 ONLINE"));
