@@ -1,5 +1,5 @@
 // ==============================================
-// NTZIN V7 INSANO (ENTERPRISE STYLE)
+// NTZIN ANTI PROXY V5 ABSURDO (BLACK & WHITE)
 // ==============================================
 
 const express = require("express");
@@ -24,55 +24,61 @@ app.get("/", (req, res) => {
 res.send(`
 <html>
 <head>
-<title>NTZIN V7</title>
+<title>NTZIN V5</title>
 
 <style>
-body{
-margin:0;
-height:100vh;
-font-family:Arial;
-color:white;
-overflow:hidden;
-background:#000;
-}
+*{margin:0;padding:0;box-sizing:border-box;}
 
-canvas{
-position:fixed;
-top:0;
-left:0;
-z-index:0;
+body{
+height:100vh;
+background:#000;
+color:#fff;
+font-family:Arial;
+display:flex;
+justify-content:center;
+align-items:center;
+overflow:hidden;
 }
 
 .box{
-position:relative;
-z-index:1;
 width:650px;
-margin:auto;
-top:50%;
-transform:translateY(-50%);
-padding:40px;
+padding:50px;
 border-radius:20px;
 background:rgba(255,255,255,0.05);
 backdrop-filter:blur(20px);
-box-shadow:0 0 40px rgba(255,255,255,0.2);
+box-shadow:0 0 60px rgba(255,255,255,0.15);
 text-align:center;
+animation:fade 1s ease;
+}
+
+h1{
+font-size:40px;
+letter-spacing:3px;
 }
 
 button{
 margin-top:20px;
-padding:14px 30px;
+padding:15px 30px;
 background:#fff;
 color:#000;
 border:none;
 border-radius:10px;
 cursor:pointer;
+font-weight:bold;
+transition:0.3s;
+}
+
+button:hover{
+transform:scale(1.05);
+box-shadow:0 0 20px #fff;
 }
 
 .progress{
-margin-top:20px;
-height:10px;
+width:100%;
+height:12px;
 background:#111;
 border-radius:10px;
+margin-top:20px;
 overflow:hidden;
 display:none;
 }
@@ -82,15 +88,25 @@ height:100%;
 width:0%;
 background:#fff;
 }
+
+#status{
+margin-top:10px;
+opacity:0.7;
+}
+
+@keyframes fade{
+from{opacity:0;transform:translateY(20px);}
+to{opacity:1;transform:translateY(0);}
+}
+
 </style>
 </head>
 
 <body>
 
-<canvas id="bg"></canvas>
-
 <div class="box">
-<h1>NTZIN V7</h1>
+<h1>NTZIN</h1>
+<p>ANTI PROXY V5</p>
 
 <input type="file" id="file"><br>
 <button onclick="upload()">SCAN</button>
@@ -103,35 +119,10 @@ background:#fff;
 </div>
 
 <script>
-// partículas
-const c = document.getElementById("bg");
-const ctx = c.getContext("2d");
-c.width=innerWidth;
-c.height=innerHeight;
-
-let particles = Array.from({length:80},()=>({
-x:Math.random()*c.width,
-y:Math.random()*c.height,
-vx:Math.random()-0.5,
-vy:Math.random()-0.5
-}));
-
-function draw(){
-ctx.clearRect(0,0,c.width,c.height);
-particles.forEach(p=>{
-p.x+=p.vx;
-p.y+=p.vy;
-ctx.fillStyle="white";
-ctx.fillRect(p.x,p.y,2,2);
-});
-requestAnimationFrame(draw);
-}
-draw();
-
-// upload
 function upload(){
+
 const file = document.getElementById("file").files[0];
-if(!file) return alert("Selecione");
+if(!file){alert("Selecione arquivo");return;}
 
 const xhr = new XMLHttpRequest();
 xhr.open("POST","/upload");
@@ -143,7 +134,7 @@ document.getElementById("progress").style.display="block";
 
 xhr.upload.onprogress = e=>{
 if(e.lengthComputable){
-let p=(e.loaded/e.total)*100;
+let p = (e.loaded/e.total)*100;
 document.getElementById("bar").style.width=p+"%";
 document.getElementById("status").innerText="Upload "+p.toFixed(0)+"%";
 }
@@ -179,21 +170,72 @@ return plist.parse(buf.toString());
 }catch{return null;}
 }
 
-function extractDate(obj){
-return obj.Timestamp || obj.Date || obj.CreationDate || obj.EventTime || null;
+async function walk(dir, arr=[]){
+const items = await fsp.readdir(dir);
+for(const i of items){
+const full = path.join(dir,i);
+const stat = await fsp.stat(full);
+
+if(stat.isDirectory()){
+await walk(full,arr);
+}else{
+const low=i.toLowerCase();
+if(
+low.includes("mcprofile")||
+low.includes("settings")||
+low.includes("preferences")
+){
+arr.push(full);
+}
+}
+}
+return arr;
 }
 
-function formatDate(d){
-if(!d) return {text:"UNKNOWN",trust:"LOW",value:0};
+// ==============================================
+// ANALISE
+// ==============================================
 
-let date = new Date(d);
-if(isNaN(date)) return {text:"UNKNOWN",trust:"LOW",value:0};
+function proxyScan(text){
+const keys=[
+"httpproxy","httpsproxy","socksproxy",
+"proxyautoconfig","proxyenable"
+];
 
-return {
-text: date.toLocaleString("pt-BR"),
-trust:"HIGH",
-value: date.getTime()
-};
+return keys.filter(k=>text.includes(k));
+}
+
+function extractEvents(obj, list=[]){
+
+if(!obj) return list;
+
+if(Array.isArray(obj)){
+obj.forEach(x=>extractEvents(x,list));
+return list;
+}
+
+if(typeof obj==="object"){
+
+const t=JSON.stringify(obj).toLowerCase();
+
+let tipo=null;
+if(t.includes("install")) tipo="INSTALL";
+if(t.includes("remove")) tipo="REMOVE";
+
+if(tipo){
+list.push({
+tipo,
+nome: obj.PayloadDisplayName || obj.Name || "Perfil",
+data: obj.Timestamp || obj.Date || "-"
+});
+}
+
+for(const k in obj){
+extractEvents(obj[k],list);
+}
+}
+
+return list;
 }
 
 // ==============================================
@@ -209,53 +251,25 @@ await fsp.mkdir(pasta);
 
 await tar.x({file:req.file.path,cwd:pasta});
 
-const files = await fsp.readdir(pasta);
+const files=await walk(pasta);
 
+let proxy=[];
 let eventos=[];
 
 for(const f of files){
 
-const parsed=parsePlist(path.join(pasta,f));
+const raw=await fsp.readFile(f);
+const txt=raw.toString().toLowerCase();
+
+proxy.push(...proxyScan(txt));
+
+const parsed=parsePlist(f);
 if(parsed){
-
-const txt=JSON.stringify(parsed).toLowerCase();
-
-let tipo=null;
-if(txt.includes("install")) tipo="INSTALL";
-if(txt.includes("remove")) tipo="REMOVE";
-
-if(tipo){
-
-const d=formatDate(extractDate(parsed));
-
-eventos.push({
-tipo,
-nome: parsed.PayloadDisplayName || "Perfil",
-data:d.text,
-value:d.value,
-trust:d.trust
-});
-}
+eventos.push(...extractEvents(parsed));
 }
 }
 
-// ordenar timeline
-eventos.sort((a,b)=>a.value-b.value);
-
-// detectar inconsistência
-let anomalies=0;
-for(let i=1;i<eventos.length;i++){
-if(eventos[i].value < eventos[i-1].value){
-eventos[i].trust="INCONSISTENT";
-anomalies++;
-}
-}
-
-// score
-let score=100;
-score -= anomalies*10;
-score -= eventos.filter(e=>e.trust==="LOW").length*5;
-if(score<0) score=0;
+proxy=[...new Set(proxy)];
 
 const tempo=((Date.now()-start)/1000).toFixed(2);
 
@@ -265,52 +279,61 @@ const tempo=((Date.now()-start)/1000).toFixed(2);
 
 res.send(`
 <html>
+<head>
 <style>
-body{background:#000;color:#fff;font-family:Arial;padding:30px;}
-.card{background:rgba(255,255,255,0.05);padding:20px;margin-bottom:15px;border-radius:12px;}
-.good{color:#00ff99;}
-.warn{color:#ffaa00;}
-.bad{color:#ff4444;}
+body{
+background:#000;
+color:#fff;
+font-family:Arial;
+padding:40px;
+}
+
+.card{
+background:rgba(255,255,255,0.05);
+padding:20px;
+margin-bottom:20px;
+border-radius:15px;
+box-shadow:0 0 20px rgba(255,255,255,0.1);
+}
+
+.ev{
+margin-top:10px;
+padding:10px;
+background:#111;
+border-radius:10px;
+}
+
 </style>
+</head>
 
 <body>
 
-<h1>NTZIN V7 DASHBOARD</h1>
+<h1>NTZIN RESULT</h1>
 
 <div class="card">
 Tempo: ${tempo}s
 </div>
 
 <div class="card">
-SYSTEM TRUST SCORE: 
-<span class="${score>70?"good":score>40?"warn":"bad"}">
-${score}/100
-</span>
+Proxy Evidence: ${proxy.length}/10<br>
+${proxy.join("<br>") || "Nenhum"}
 </div>
 
 <div class="card">
-Timeline:
+Eventos:
 ${
 eventos.map(e=>`
-<div>
-<b>${e.tipo}</b> - ${e.nome}<br>
-${e.data} 
-<span class="${e.trust==="HIGH"?"good":e.trust==="LOW"?"warn":"bad"}">
-(${e.trust})
-</span>
-</div><hr>
+<div class="ev">
+${e.tipo} - ${e.nome}<br>
+${e.data}
+</div>
 `).join("")
 }
-</div>
-
-<div class="card">
-Anomalias detectadas: ${anomalies}
 </div>
 
 </body>
 </html>
 `);
-
 });
 
-app.listen(PORT,()=>console.log("NTZIN V7 ONLINE"));
+app.listen(PORT,()=>console.log("NTZIN V5 ONLINE"));
