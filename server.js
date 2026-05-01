@@ -1,5 +1,5 @@
 // ==============================================
-// NTZIN V13 - STABLE (SEM CRASH)
+// NTZIN V13 FINAL - STABLE + PROGRESS + NO CRASH
 // ==============================================
 
 const express = require("express");
@@ -14,10 +14,20 @@ const bplist = require("bplist-parser");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const upload = multer({ dest: "uploads/" });
+// 🔥 evita timeout (502)
+app.use((req,res,next)=>{
+res.setTimeout(120000);
+next();
+});
+
+// 🔥 upload até 50MB
+const upload = multer({ 
+dest: "uploads/",
+limits: { fileSize: 50 * 1024 * 1024 }
+});
 
 // =======================
-// HELPERS SEGUROS
+// HELPERS
 // =======================
 
 function safeParse(file){
@@ -52,7 +62,7 @@ return keys.filter(k=>text.includes(k));
 }
 
 // =======================
-// ANALISE LEVE MAS EFICIENTE
+// ANALISE
 // =======================
 
 function analyze(events, proxyHits){
@@ -60,7 +70,7 @@ function analyze(events, proxyHits){
 let risk = 0;
 let flags = [];
 
-// ordem de tempo
+// ordem errada
 for(let i=1;i<events.length;i++){
 if(events[i].time < events[i-1].time){
 flags.push("Ordem de tempo inconsistente");
@@ -68,7 +78,7 @@ risk += 20;
 }
 }
 
-// install/remove rapido
+// install/remove rápido
 for(let i=1;i<events.length;i++){
 if(events[i-1].tipo==="INSTALL" && events[i].tipo==="REMOVE"){
 let diff = events[i].time - events[i-1].time;
@@ -81,11 +91,11 @@ risk += 25;
 
 // proxy
 if(proxyHits.length){
-flags.push("Indícios de proxy no sistema");
+flags.push("Indícios de proxy");
 risk += proxyHits.length * 5;
 }
 
-// eventos sem tempo
+// sem tempo
 events.forEach(e=>{
 if(!e.time){
 flags.push("Evento sem timestamp");
@@ -99,25 +109,67 @@ return {risk, flags};
 }
 
 // =======================
-// UI SIMPLES E ESTÁVEL
+// UI COM PROGRESSO REAL
 // =======================
 
 app.get("/", (req,res)=>{
 res.send(`
 <html>
 <body style="background:black;color:white;font-family:Arial;text-align:center;padding-top:100px">
-<h1>NTZIN V13 STABLE</h1>
-<form action="/scan" method="post" enctype="multipart/form-data">
-<input type="file" name="arquivo"><br><br>
-<button>SCAN</button>
-</form>
+
+<h1>NTZIN V13</h1>
+
+<input type="file" id="file"><br><br>
+<button onclick="scan()">SCAN</button>
+
+<br><br>
+
+<div style="width:300px;height:10px;background:#333;margin:auto;border-radius:10px;">
+<div id="bar" style="height:10px;width:0%;background:white;border-radius:10px;"></div>
+</div>
+
+<script>
+function scan(){
+
+let f = document.getElementById("file").files[0];
+if(!f) return alert("Escolhe arquivo");
+
+let bar = document.getElementById("bar");
+
+let fd = new FormData();
+fd.append("arquivo", f);
+
+let xhr = new XMLHttpRequest();
+
+xhr.upload.onprogress = function(e){
+if(e.lengthComputable){
+let percent = (e.loaded / e.total) * 100;
+bar.style.width = percent + "%";
+}
+};
+
+xhr.onload = function(){
+document.open();
+document.write(xhr.responseText);
+document.close();
+};
+
+xhr.onerror = function(){
+alert("Erro no upload");
+};
+
+xhr.open("POST","/scan");
+xhr.send(fd);
+}
+</script>
+
 </body>
 </html>
 `);
 });
 
 // =======================
-// SCAN (OTIMIZADO)
+// SCAN
 // =======================
 
 app.post("/scan", upload.single("arquivo"), async (req,res)=>{
@@ -129,10 +181,10 @@ const start = Date.now();
 const pasta = "scan_"+Date.now();
 await fsp.mkdir(pasta);
 
-// extrai
+// extrair
 await tar.x({file:req.file.path,cwd:pasta});
 
-// pega só arquivos relevantes
+// pegar arquivos relevantes
 const files = (await fsp.readdir(pasta)).filter(f =>
 f.toLowerCase().includes("mcprofile") || f.endsWith(".plist")
 );
@@ -144,9 +196,9 @@ for(const f of files){
 
 const full = path.join(pasta,f);
 
-// limita tamanho
+// 🔥 ignora arquivos grandes (evita crash)
 const stat = await fsp.stat(full);
-if(stat.size > 2_000_000) continue;
+if(stat.size > 800_000) continue;
 
 let raw;
 try{
@@ -157,10 +209,10 @@ continue;
 
 const txt = raw.toString().toLowerCase();
 
-// detect proxy
+// proxy
 proxyHits.push(...detectProxy(txt));
 
-// parse plist
+// parse
 const parsed = safeParse(full);
 if(!parsed) continue;
 
@@ -180,10 +232,10 @@ time: toEpoch(getTime(parsed))
 
 }
 
-// ordena
+// ordenar
 events.sort((a,b)=>a.time-b.time);
 
-// analisa
+// analisar
 const result = analyze(events, proxyHits);
 
 const tempo = ((Date.now()-start)/1000).toFixed(2);
@@ -199,7 +251,6 @@ res.send(`
 <h1>NTZIN V13 RESULT</h1>
 
 <p>Tempo: ${tempo}s</p>
-
 <p>Risk: <b>${result.risk}/100</b></p>
 
 <h3>Flags:</h3>
@@ -210,7 +261,7 @@ ${proxyHits.join("<br>") || "Nenhum"}
 
 <h3>Eventos:</h3>
 ${events.map(e=>`
-<div>
+<div style="margin-bottom:10px;">
 ${e.tipo} - ${e.nome}<br>
 ${e.time ? new Date(e.time).toLocaleString() : "Sem data"}
 </div>
@@ -232,4 +283,4 @@ res.send("Erro ao processar (arquivo muito pesado ou inválido)");
 
 // =======================
 
-app.listen(PORT,()=>console.log("V13 STABLE ONLINE"));
+app.listen(PORT,()=>console.log("NTZIN V13 STABLE ONLINE"));
