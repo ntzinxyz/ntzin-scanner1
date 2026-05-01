@@ -1,5 +1,5 @@
 // ==========================================
-// NTZIN V8 GOD FINAL (EVENTOS + PROXY NOMES)
+// NTZIN V8 GOD (UI ORIGINAL + MELHORIAS)
 // ==========================================
 
 const express = require("express");
@@ -32,7 +32,7 @@ return null;
 }
 }
 
-// 🔥 pega qualquer tipo de data possível
+// 🔥 MELHORADO
 function getTime(obj){
 return obj?.Timestamp 
 || obj?.Date 
@@ -50,7 +50,7 @@ return isNaN(dt) ? 0 : dt.getTime();
 }
 
 // =======================
-// HOME
+// UI ORIGINAL + BARRA REAL
 // =======================
 
 app.get("/", (req,res)=>{
@@ -63,21 +63,40 @@ res.send(`
 <input type="file" id="file"><br><br>
 <button onclick="scan()">SCAN</button>
 
+<br><br>
+
+<div style="width:300px;height:10px;background:#333;margin:auto;border-radius:10px;">
+<div id="bar" style="height:10px;width:0%;background:white;border-radius:10px;"></div>
+</div>
+
 <script>
 function scan(){
-let f=document.getElementById("file").files[0];
+
+let f = document.getElementById("file").files[0];
 if(!f) return alert("Escolhe arquivo");
 
-let fd=new FormData();
-fd.append("arquivo",f);
+let bar = document.getElementById("bar");
 
-fetch("/scan",{method:"POST",body:fd})
-.then(r=>r.text())
-.then(html=>{
+let fd = new FormData();
+fd.append("arquivo", f);
+
+let xhr = new XMLHttpRequest();
+
+xhr.upload.onprogress = function(e){
+if(e.lengthComputable){
+let percent = (e.loaded / e.total) * 100;
+bar.style.width = percent + "%";
+}
+};
+
+xhr.onload = function(){
 document.open();
-document.write(html);
+document.write(xhr.responseText);
 document.close();
-});
+};
+
+xhr.open("POST","/scan");
+xhr.send(fd);
 }
 </script>
 
@@ -97,7 +116,7 @@ try{
 const pasta = "scan_"+Date.now();
 await fsp.mkdir(pasta);
 
-// extrai tudo
+// extrai
 await tar.x({
 file:req.file.path,
 cwd:pasta
@@ -121,7 +140,7 @@ await scanDir(full);
 continue;
 }
 
-// limita arquivos grandes
+// limita tamanho
 if(stat.size > 5_000_000) continue;
 
 let raw;
@@ -133,11 +152,11 @@ continue;
 
 const txt = raw.toString().toLowerCase();
 
-// tenta parse
+// parse
 let parsed = parsePlist(full);
 
 // =======================
-// DETECÇÃO HTTPS PROXY COM NOME
+// HTTPS PROXY COM NOME
 // =======================
 
 if(txt.includes("httpsproxy")){
@@ -157,7 +176,7 @@ arquivo: f
 }
 
 // =======================
-// EVENTOS INSTALL / REMOVE
+// EVENTOS COM HORÁRIO
 // =======================
 
 if(parsed){
@@ -182,11 +201,11 @@ time: toEpoch(getTime(parsed))
 
 await scanDir(pasta);
 
-// ordenar por tempo
+// ordenar
 events.sort((a,b)=>a.time-b.time);
 
 // =======================
-// RESULTADO
+// RESULTADO (MESMA UI)
 // =======================
 
 res.send(`
@@ -199,9 +218,7 @@ res.send(`
 ${
 proxyProfiles.length 
 ? proxyProfiles.map(p=>`
-<div>
-${p.nome} (${p.arquivo})
-</div>
+<div>${p.nome} (${p.arquivo})</div>
 `).join("")
 : "Nenhum"
 }
